@@ -40,23 +40,23 @@ jobs:
         export SUBARCH=arm64
         export HEADER_ARCH=arm64
         
-        # 1. 这里的 spartan_defconfig 需要根据你手机实际的配置文件名修改
-        make O=out ARCH=arm64 vendor/spartan_defconfig
+        # 使用你刚才找到的 gki_defconfig 配置文件
+        make O=out ARCH=arm64 gki_defconfig
         
-        # 2. 注入 KSU 配置项到 defconfig
+        # 注入 KSU 配置项到临时编译配置中
         echo "CONFIG_KSU=y" >> out/.config
         echo "CONFIG_KPROBES=y" >> out/.config
         echo "CONFIG_HAVE_KPROBES=y" >> out/.config
         echo "CONFIG_KPROBE_EVENTS=y" >> out/.config
         
-        # 3. 开始编译
+        # 开始全核编译
         make -j$(nproc --all) O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu- CC=clang
 
     - name: Package with AnyKernel3
       run: |
         cd $GITHUB_WORKSPACE
         git clone https://github.com/osm0sis/AnyKernel3.git --depth=1 AnyKernel3
-        # 检查编译产物并放入打包目录
+        # 检查编译产物并自动放入打包目录
         if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
           cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/Image.gz-dtb
         elif [ -f out/arch/arm64/boot/Image.gz ]; then
