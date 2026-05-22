@@ -6,11 +6,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout Source Code
-      uses: actions/checkout@v4
-      with:
-        ref: Entropy-1.2
-        fetch-depth: 1
+    # 步骤 1：用原生 git 克隆代替 checkout 插件
+    - name: Clone Source Code
+      run: |
+        git clone --branch Entropy-1.2 --depth 1 https://github.com/Gkid-0212/android_kernel_realme_sm8250.git $GITHUB_WORKSPACE
 
     - name: Setup Build Environment
       run: |
@@ -21,7 +20,6 @@ jobs:
       run: |
         mkdir -p $GITHUB_WORKSPACE/clang
         cd $GITHUB_WORKSPACE/clang
-        # 下载适配 4.19 内核的标准普罗米修斯 Clang 工具链
         curl -LO "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r450784d.tar.gz"
         tar -xzf clang-r450784d.tar.gz
         rm clang-r450784d.tar.gz
@@ -29,7 +27,6 @@ jobs:
     - name: Integrate KernelSU
       run: |
         cd $GITHUB_WORKSPACE
-        # 针对非 GKI 的 4.19 内核注入 KernelSU 代码
         curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v0.9.5
 
     - name: Build Kernel
@@ -40,23 +37,19 @@ jobs:
         export SUBARCH=arm64
         export HEADER_ARCH=arm64
         
-        # 使用你刚才找到的 gki_defconfig 配置文件
         make O=out ARCH=arm64 gki_defconfig
         
-        # 注入 KSU 配置项到临时编译配置中
         echo "CONFIG_KSU=y" >> out/.config
         echo "CONFIG_KPROBES=y" >> out/.config
         echo "CONFIG_HAVE_KPROBES=y" >> out/.config
         echo "CONFIG_KPROBE_EVENTS=y" >> out/.config
         
-        # 开始全核编译
         make -j$(nproc --all) O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu- CC=clang
 
     - name: Package with AnyKernel3
       run: |
         cd $GITHUB_WORKSPACE
         git clone https://github.com/osm0sis/AnyKernel3.git --depth=1 AnyKernel3
-        # 检查编译产物并自动放入打包目录
         if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
           cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/Image.gz-dtb
         elif [ -f out/arch/arm64/boot/Image.gz ]; then
@@ -67,8 +60,12 @@ jobs:
         cd AnyKernel3
         zip -r9 ../AnyKernel3-KernelSU-Entropy.zip * -x .git* README.md
 
-    - name: Upload Build Artifact
-      uses: actions/artifacts@v4
-      with:
-        name: AnyKernel3-KernelSU-Package
-        path: AnyKernel3-KernelSU-Entropy.zip
+    # 步骤 2：使用免费的 transfer.sh 代替 artifacts 插件上传产物
+    - name: Upload Zip Pack
+      run: |
+        cd $GITHUB_WORKSPACE
+        echo "--------------------------------------------------------"
+        echo "开始上传编译好的卡刷包，请注意保存下方生成的下载链接："
+        echo "--------------------------------------------------------"
+        curl --upload-file ./AnyKernel3-KernelSU-Entropy.zip https://transfer.sh/AnyKernel3-KernelSU-Entropy.zip
+        echo -e "\n--------------------------------------------------------"
