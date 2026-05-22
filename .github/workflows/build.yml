@@ -1,0 +1,74 @@
+name: Build KernelSU Next
+on:
+  workflow_dispatch: # 允许你手动点击按钮触发编译
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Source Code
+      uses: actions/checkout@v4
+      with:
+        ref: Entropy-1.2
+        fetch-depth: 1
+
+    - name: Setup Build Environment
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bc bison build-essential ccache flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev liblz4-tool libncurses5 libsdl1.1-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev libtinfo5
+        
+    - name: Download Clang Toolchain
+      run: |
+        mkdir -p $GITHUB_WORKSPACE/clang
+        cd $GITHUB_WORKSPACE/clang
+        # 下载适配 4.19 内核的标准普罗米修斯 Clang 工具链
+        curl -LO "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r450784d.tar.gz"
+        tar -xzf clang-r450784d.tar.gz
+        rm clang-r450784d.tar.gz
+
+    - name: Integrate KernelSU
+      run: |
+        cd $GITHUB_WORKSPACE
+        # 针对非 GKI 的 4.19 内核注入 KernelSU 代码
+        curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v0.9.5
+
+    - name: Build Kernel
+      run: |
+        cd $GITHUB_WORKSPACE
+        export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+        export ARCH=arm64
+        export SUBARCH=arm64
+        export HEADER_ARCH=arm64
+        
+        # 1. 这里的 spartan_defconfig 需要根据你手机实际的配置文件名修改
+        make O=out ARCH=arm64 vendor/spartan_defconfig
+        
+        # 2. 注入 KSU 配置项到 defconfig
+        echo "CONFIG_KSU=y" >> out/.config
+        echo "CONFIG_KPROBES=y" >> out/.config
+        echo "CONFIG_HAVE_KPROBES=y" >> out/.config
+        echo "CONFIG_KPROBE_EVENTS=y" >> out/.config
+        
+        # 3. 开始编译
+        make -j$(nproc --all) O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu- CC=clang
+
+    - name: Package with AnyKernel3
+      run: |
+        cd $GITHUB_WORKSPACE
+        git clone https://github.com/osm0sis/AnyKernel3.git --depth=1 AnyKernel3
+        # 检查编译产物并放入打包目录
+        if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
+          cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/Image.gz-dtb
+        elif [ -f out/arch/arm64/boot/Image.gz ]; then
+          cp out/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
+        else
+          cp out/arch/arm64/boot/Image AnyKernel3/Image
+        fi
+        cd AnyKernel3
+        zip -r9 ../AnyKernel3-KernelSU-Entropy.zip * -x .git* README.md
+
+    - name: Upload Build Artifact
+      uses: actions/artifacts@v4
+      with:
+        name: AnyKernel3-KernelSU-Package
+        path: AnyKernel3-KernelSU-Entropy.zip
